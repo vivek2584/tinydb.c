@@ -14,6 +14,8 @@ typedef enum{
     PREPARE_STATEMENT_SUCCESS,
     PREPARE_STATEMENT_UNRECOGNIZED,
     PREPARE_SYNTAX_ERROR,
+    PREPARE_STRING_TOO_LONG,
+    PREPARE_NEGATIVE_ID,
 } prepare_status_t;
 
 typedef enum{
@@ -28,7 +30,7 @@ typedef enum{
 
 typedef struct {
     uint32_t id;
-    char username[32];
+    char username[33];
     char email[256];
 } row_t;
 
@@ -68,6 +70,7 @@ void read_input_to_buffer(input_buffer_t* input_buffer);
 void close_input_buffer(input_buffer_t* input_buffer);
 
 meta_command_status_t execute_meta_command(input_buffer_t* input_buffer);
+prepare_status_t prepare_insert(input_buffer_t* input_buffer, statement_t* statement);
 prepare_status_t prepare_statement(input_buffer_t* input_buffer, statement_t* statement);
 
 void serialize_row(void* destination, row_t* source);

@@ -26,11 +26,18 @@ int main(int argc, char** argv){
         switch(prepare_statement(input_buffer, &statement)){
             case PREPARE_STATEMENT_SUCCESS:
                 break;
+            case PREPARE_STRING_TOO_LONG:
+                printf("Error: String too long\n");
+                continue;
+            case PREPARE_NEGATIVE_ID:
+                printf("Error: ID must be positive\n");
+                continue;
             case PREPARE_STATEMENT_UNRECOGNIZED:
                 printf("Error: Unrecognized keyword at start of %s\n", input_buffer -> buffer);
                 continue;
             case PREPARE_SYNTAX_ERROR:
                 printf("Error: Syntax Error. Could not parse Statement.\n");
+                continue;
         }
 
         switch(execute_statement((&statement), table)){
