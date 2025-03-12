@@ -1,5 +1,7 @@
 attempt to make a SQLite clone from scratch in C     (why? because im a big nerd)
 
+\>this implementation can currently read entries from a file / write entries to a file on disk
+
 basic structure :-
 
 \> parse the query through a tokenizer and parser to create a "bytecode"
