@@ -4,6 +4,8 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <unistd.h>
+#include <fcntl.h>
+#include <sys/stat.h>
 #include <string.h>
 #include <stdint.h>
 
@@ -12,9 +14,9 @@ const size_t USERNAME_SIZE = size_of_attribute(row_t, username);
 const size_t EMAIL_SIZE = size_of_attribute(row_t, email);
 const size_t ROW_SIZE = ID_SIZE + USERNAME_SIZE + EMAIL_SIZE;
 
-const size_t ID_OFFSET = 0;
-const size_t USERNAME_OFFSET = ID_OFFSET + ID_SIZE;
-const size_t EMAIL_OFFSET = USERNAME_OFFSET + USERNAME_SIZE;
+const off_t ID_OFFSET = 0;
+const off_t USERNAME_OFFSET = ID_OFFSET + (off_t)ID_SIZE;
+const off_t EMAIL_OFFSET = USERNAME_OFFSET + (off_t)USERNAME_SIZE;
 
 const size_t PAGE_SIZE = 4096;             // 4KB
 const size_t ROWS_PER_PAGE = PAGE_SIZE / ROW_SIZE;
@@ -45,28 +47,118 @@ void read_input_to_buffer(input_buffer_t* input_buffer){
         exit(EXIT_FAILURE);
     }
 
-    input_buffer->input_length = bytes_read - 1;
-    input_buffer->buffer[bytes_read - 1] = 0;
+    input_buffer -> input_length = bytes_read - 1;
+    input_buffer -> buffer[bytes_read - 1] = 0;
 
 }
 
-table_t* allocate_table(){
+table_t* db_open(const char* filename){
+    pager_t* pager = pager_open(filename);
+    size_t num_rows = pager -> file_length / ROW_SIZE;
     table_t* table = (table_t*)malloc(sizeof(table_t));
-    table -> num_rows = 0;
-    memset(table -> pages, 0 , sizeof(table -> pages));
+    
+    table -> num_rows = num_rows;
+    table -> pager = pager;
     return table;
 }
 
-void free_table(table_t* table){
-    for(size_t i = 0; i < MAX_TABLE_PAGES; i++){
-        free(table -> pages[i]);
+pager_t* pager_open(const char* filename){
+    int fd = open(filename, O_RDWR | O_CREAT, S_IWUSR | S_IRUSR);
+    if(fd == -1){
+        exit(EXIT_FAILURE);
     }
+
+    off_t file_length = lseek(fd, 0, SEEK_END);
+    pager_t* pager = (pager_t*)malloc(sizeof(pager_t));
+    pager -> file_descriptor = fd;
+    pager -> file_length = file_length;
+    memset(pager -> pages, 0, sizeof(pager -> pages));
+
+    return pager;
+}
+
+void* get_page(pager_t* pager, size_t page_num){
+    if(page_num > MAX_TABLE_PAGES){
+        exit(EXIT_FAILURE);
+    }
+
+    if(pager -> pages[page_num] == NULL){
+        void* new_page = malloc(PAGE_SIZE);
+        size_t num_pages = pager -> file_length / PAGE_SIZE;
+
+        if(pager -> file_length % PAGE_SIZE != 0){
+            num_pages += 1;
+        }
+
+        if(page_num <= num_pages){
+            lseek(pager -> file_descriptor, PAGE_SIZE * page_num, SEEK_SET);
+            ssize_t bytes_read = read(pager -> file_descriptor, new_page, PAGE_SIZE);
+            if(bytes_read == -1){
+                exit(EXIT_FAILURE);
+            }
+        }
+        pager -> pages[page_num] = new_page;
+    }
+    return pager -> pages[page_num];
+}
+
+void pager_flush(pager_t* pager, size_t page_num, size_t size){
+    if(pager -> pages[page_num] == NULL){
+        exit(EXIT_FAILURE);
+    }
+
+    off_t offset = lseek(pager -> file_descriptor, page_num * PAGE_SIZE, SEEK_SET);
+    if(offset == -1){
+        exit(EXIT_FAILURE);
+    }
+    ssize_t bytes_written = write(pager -> file_descriptor, pager -> pages[page_num], size);
+    if(bytes_written == -1){
+        exit(EXIT_FAILURE);
+    }
+}
+
+void db_close(table_t* table){
+    pager_t* pager = table -> pager;
+    size_t num_pages = table -> num_rows / ROWS_PER_PAGE;
+
+    for(size_t i = 0; i < num_pages ; i++){
+        if(pager -> pages[i] == NULL){
+            continue;
+        }
+        pager_flush(pager, i, PAGE_SIZE);
+        free(pager -> pages[i]);
+        pager -> pages[i] = NULL;
+    }
+    
+    size_t additional_rows = table -> num_rows % ROWS_PER_PAGE;
+    if(additional_rows > 0){
+        size_t page_num = num_pages;
+        if(pager -> pages[page_num] != NULL){
+            pager_flush(pager, page_num, additional_rows * ROW_SIZE);
+            free(pager -> pages[page_num]);
+            pager -> pages[page_num] = NULL;
+        }
+    }
+
+    int res = close(pager -> file_descriptor);
+    if(res == -1){
+        exit(EXIT_FAILURE);
+    }
+
+    for(size_t i = 0; i < MAX_TABLE_PAGES; i++){
+        if(pager -> pages[i] != NULL){
+            free(pager -> pages[i]);
+            pager -> pages[i] = NULL;
+        }
+    }
+    free(pager);
     free(table);
 }
 
-meta_command_status_t execute_meta_command(input_buffer_t* input_buffer){   
+meta_command_status_t execute_meta_command(input_buffer_t* input_buffer, table_t* table){   
     if(strcmp(input_buffer -> buffer, ".exit") == 0){
         close_input_buffer(input_buffer);
+        db_close(table);
         exit(EXIT_SUCCESS);
     }
     else{
@@ -130,13 +222,9 @@ void print_row(row_t* row){
 
 void* find_row_location(table_t* table, size_t row_num){
     size_t page_num = row_num / ROWS_PER_PAGE;
-    void* page = table -> pages[page_num];
-    if(page == NULL){
-        page = malloc(PAGE_SIZE);
-        table -> pages[page_num] = page;
-    }
-    size_t row_offset = row_num % ROWS_PER_PAGE;
-    size_t byte_offset = ROW_SIZE * row_offset;
+    void* page = get_page(table -> pager, page_num);
+    off_t row_offset = row_num % ROWS_PER_PAGE;
+    off_t byte_offset = ROW_SIZE * row_offset;
     return page + byte_offset;
 }
 

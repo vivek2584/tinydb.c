@@ -5,6 +5,12 @@
 
 #define MAX_TABLE_PAGES 100
 
+typedef struct{
+    int file_descriptor;
+    size_t file_length;
+    void* pages[MAX_TABLE_PAGES];
+} pager_t;
+
 typedef enum{
     META_COMMAND_SUCCESS,
     META_COMMAND_UNRECOGNIZED,
@@ -36,7 +42,7 @@ typedef struct {
 
 typedef struct{
     size_t num_rows;
-    void* pages[MAX_TABLE_PAGES];
+    pager_t* pager;
 } table_t;
 
 typedef struct{
@@ -50,9 +56,9 @@ extern const size_t ID_SIZE;
 extern const size_t USERNAME_SIZE;
 extern const size_t EMAIL_SIZE;
 extern const size_t ROW_SIZE;
-extern const size_t ID_OFFSET;
-extern const size_t USERNAME_OFFSET;
-extern const size_t EMAIL_OFFSET;
+extern const off_t ID_OFFSET;
+extern const off_t USERNAME_OFFSET;
+extern const off_t EMAIL_OFFSET;
 extern const size_t PAGE_SIZE;
 extern const size_t ROWS_PER_PAGE;
 extern const size_t MAX_ROWS_PER_TABLE;
@@ -69,7 +75,7 @@ input_buffer_t* allocate_input_buffer();
 void read_input_to_buffer(input_buffer_t* input_buffer);
 void close_input_buffer(input_buffer_t* input_buffer);
 
-meta_command_status_t execute_meta_command(input_buffer_t* input_buffer);
+meta_command_status_t execute_meta_command(input_buffer_t* input_buffer, table_t* table);
 prepare_status_t prepare_insert(input_buffer_t* input_buffer, statement_t* statement);
 prepare_status_t prepare_statement(input_buffer_t* input_buffer, statement_t* statement);
 
@@ -78,8 +84,11 @@ void deserialize_row(row_t* destination, void* source);
 void print_row(row_t* row);
 void* find_row_location(table_t* table, size_t row_num);
 
-table_t* allocate_table();
-void free_table(table_t* table);
+table_t* db_open(const char* filename);
+pager_t* pager_open(const char* filename);
+void* get_page(pager_t* pager, size_t page_num);
+void db_close(table_t* table);
+void pager_flush(pager_t* pager, size_t page_num, size_t size);
 
 execute_status_t execute_select(statement_t* statement, table_t* table);
 execute_status_t execute_insert(statement_t* statement, table_t* table);
