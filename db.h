@@ -2,6 +2,7 @@
 
 #include <unistd.h>
 #include <stdint.h>
+#include <stdbool.h>
 
 #define MAX_TABLE_PAGES 100
 
@@ -10,6 +11,12 @@ typedef struct{
     size_t file_length;
     void* pages[MAX_TABLE_PAGES];
 } pager_t;
+
+typedef struct{
+    size_t row_num;
+    table_t* table;
+    bool end_of_table;
+} cursor_t;
 
 typedef enum{
     META_COMMAND_SUCCESS,
@@ -82,13 +89,17 @@ prepare_status_t prepare_statement(input_buffer_t* input_buffer, statement_t* st
 void serialize_row(void* destination, row_t* source);
 void deserialize_row(row_t* destination, void* source);
 void print_row(row_t* row);
-void* find_row_location(table_t* table, size_t row_num);
+void* cursor_loc(cursor_t* cursor);
+void cursor_increment(cursor_t* cursor);
 
 table_t* db_open(const char* filename);
 pager_t* pager_open(const char* filename);
 void* get_page(pager_t* pager, size_t page_num);
 void db_close(table_t* table);
 void pager_flush(pager_t* pager, size_t page_num, size_t size);
+
+cursor_t* table_start_cursor(table_t* table);
+cursor_t* table_end_cursor(table_t* table);
 
 execute_status_t execute_select(statement_t* statement, table_t* table);
 execute_status_t execute_insert(statement_t* statement, table_t* table);

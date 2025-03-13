@@ -117,6 +117,27 @@ void pager_flush(pager_t* pager, size_t page_num, size_t size){
     }
 }
 
+cursor_t* table_start_cursor(table_t* table){
+    cursor_t* cursor = (cursor_t*)malloc(sizeof(cursor_t));
+    if(table -> num_rows == 0){
+        cursor -> end_of_table = true;
+    }
+    else{
+        cursor -> end_of_table = false;
+    }
+    cursor -> row_num = 0;
+    cursor -> table = table;
+    return cursor;
+}
+
+cursor_t* table_end_cursor(table_t* table){
+    cursor_t* cursor = (cursor_t*)malloc(sizeof(cursor_t));
+    cursor -> row_num = table -> num_rows;
+    cursor -> table = table;
+    cursor -> end_of_table = true;
+    return cursor;
+}
+
 void db_close(table_t* table){
     pager_t* pager = table -> pager;
     size_t num_pages = table -> num_rows / ROWS_PER_PAGE;
@@ -220,31 +241,43 @@ void print_row(row_t* row){
     printf("(%d %s %s)\n", row -> id, row -> username, row -> email);
 }
 
-void* find_row_location(table_t* table, size_t row_num){
-    size_t page_num = row_num / ROWS_PER_PAGE;
+void* cursor_loc(cursor_t* cursor){
+    table_t* table = cursor -> table;
+    size_t page_num = cursor -> row_num / ROWS_PER_PAGE;
     void* page = get_page(table -> pager, page_num);
-    off_t row_offset = row_num % ROWS_PER_PAGE;
+    off_t row_offset = cursor -> row_num % ROWS_PER_PAGE;
     off_t byte_offset = ROW_SIZE * row_offset;
     return page + byte_offset;
 }
 
+void cursor_increment(cursor_t* cursor){
+    cursor -> row_num += 1;
+    if(cursor -> row_num == cursor -> table -> num_rows){
+        cursor -> end_of_table = true;
+    }
+}
+
 execute_status_t execute_insert(statement_t* statement, table_t* table){
+    cursor_t* cursor = table_end_cursor(table);
     if(table -> num_rows >= MAX_ROWS_PER_TABLE){
         return EXECUTE_TABLE_FULL;
     }
     row_t* row = &(statement -> row_to_insert);
-    serialize_row(find_row_location(table, table -> num_rows), row);
+    serialize_row(cursor_loc(cursor), row);
     table -> num_rows += 1;
-
+    free(cursor);
     return EXECUTE_SUCCESS;
 }
 
 execute_status_t execute_select(statement_t* statement, table_t* table){
     row_t row;
-    for(size_t i = 0; i < table -> num_rows; i++){
-        deserialize_row(&row, find_row_location(table, i));
+    cursor_t* cursor = table_start_cursor(table);
+    while(!(cursor -> end_of_table)){
+        deserialize_row(&row, cursor_loc(cursor));
         print_row(&row);
+        cursor_increment(cursor);
     }
+    free(cursor);
     return EXECUTE_SUCCESS;
 }
 
