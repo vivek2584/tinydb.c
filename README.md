@@ -1,4 +1,4 @@
-attempt to make a SQLite clone from scratch in C     (why? because im a big nerd)
+attempt to make a SQLite clone from scratch in C     
 
 \>this implementation can currently read entries from a file / write entries to a file on disk
 
